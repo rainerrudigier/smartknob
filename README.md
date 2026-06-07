@@ -52,7 +52,6 @@ Die Firmware unterstützt zwei Kommutierungsverfahren, umschaltbar in `main/setu
 
 **Voraussetzungen:**
 - ESP-IDF v5.5.2
-- Python: `C:/Users/raine/.espressif/python_env/idf5.5_py3.11_env/Scripts/python.exe`
 
 ```bash
 # Konfigurieren + Bauen + Flashen
