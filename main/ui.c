@@ -73,13 +73,13 @@ void ui_init(lv_display_t *disp)
     lv_label_set_text(s_strain_raw, "F: ---");
     lv_obj_align(s_strain_raw, LV_ALIGN_BOTTOM_MID, 0, -14);
 
-    // Git-Commit-Hash (Build-Version) – kleines Label unten rechts
+    // Git-Commit-Hash (Build-Version) – kleines Label mittig oberhalb HX711-Rohwert
     const esp_app_desc_t *app = esp_app_get_description();
     lv_obj_t *ver = lv_label_create(screen);
     lv_obj_set_style_text_font(ver, &lv_font_montserrat_8, LV_PART_MAIN);
     lv_obj_set_style_text_color(ver, lv_color_make(60, 60, 60), LV_PART_MAIN);
     lv_label_set_text(ver, app->version);
-    lv_obj_align(ver, LV_ALIGN_BOTTOM_RIGHT, -10, -6);
+    lv_obj_align(ver, LV_ALIGN_BOTTOM_MID, 0, -28);
 }
 
 void ui_update_angle(float degrees, motor_dir_t dir)

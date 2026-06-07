@@ -384,8 +384,8 @@ LVGL-Timer läuft alle **100 ms** und ruft alle `ui_update_*`-Funktionen auf.
      ║  │  │   < LEFT      │  │  ║  ← Motor-Richtung (grün/orange)
      ║  │  └───────────────┘  │  ║
      ╚══╪═════════════════════╪══╝
+        │      abc123         │  ← Git-Hash (grau, unten Mitte, Font 8)
         │      F: 2341        │  ← HX711 Rohwert (grau, unten)
-        │              abc123 │  ← Git-Hash (grau, unten rechts)
         └─────────────────────┘
 ```
 
@@ -399,7 +399,7 @@ LVGL-Timer läuft alle **100 ms** und ruft alle `ui_update_*`-Funktionen auf.
 | Lux            | `lv_label`       | Oben, +14 px          | Gelb                  |
 | Press-Ring     | `lv_obj` (Kreis) | ⌀220 px, zentriert    | Orange                |
 | Kraft-Rohwert  | `lv_label`       | Unten Mitte, –14 px   | Grau                  |
-| Git-Hash       | `lv_label`       | Unten rechts, –6 px   | Dunkelgrau (Font 8)   |
+| Git-Hash       | `lv_label`       | Unten Mitte, –28 px   | Dunkelgrau (Font 8)   |
 
 **Press-Ring (HX711):**
 
@@ -423,7 +423,8 @@ Konfigurierbare Konstanten in `ui.c`:
 ```
 
 **Git-Hash:** Wird beim Start einmalig via `esp_app_get_description()->version`
-gelesen und unten rechts im Display angezeigt (Font Montserrat 8).
+gelesen und mittig oberhalb des HX711-Rohwerts angezeigt (Font Montserrat 8,
+`LV_ALIGN_BOTTOM_MID`, y=−28).
 
 ---
 
