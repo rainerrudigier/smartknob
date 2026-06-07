@@ -49,9 +49,7 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 # die einzige Möglichkeit die eigentliche Absturzursache zu sehen.
 CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
 
-# Stack-Overflow-Erkennung: schreibt Canary-Werte an Stack-Ende,
-# meldet bei Überschreibung via vApplicationStackOverflowHook.
-CONFIG_FREERTOS_ENABLE_STATIC_TASK_CLEAN_UP=n
+# Stack-Overflow-Erkennung via Canary-Bytes am Stack-Ende.
 CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
 
 # FreeRTOS
