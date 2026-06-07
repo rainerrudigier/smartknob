@@ -228,7 +228,8 @@ void motor_init(void)
 
     // 6144 B: sinf/fabsf benötigen FPU-Registerblock (~72 B) zusätzlich
     // zum normalen Kontextsave → bei 4096 B kommt es zu Double Exception
-    xTaskCreate(motor_task, "motor", 6144, NULL, 6, NULL);
+    // Core 0: zeitkritische PWM-Kommutierung isoliert von UI/Sensoren
+    xTaskCreatePinnedToCore(motor_task, "motor", 6144, NULL, 6, NULL, 0);
 }
 
 void motor_set(motor_dir_t dir, uint32_t step_ms)

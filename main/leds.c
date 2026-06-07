@@ -57,5 +57,6 @@ static void leds_task(void *arg)
 
 void leds_start_task(void)
 {
-    xTaskCreate(leds_task, "leds", 2048, NULL, 4, NULL);
+    // Core 1: UI/Sensor-Core
+    xTaskCreatePinnedToCore(leds_task, "leds", 2048, NULL, 4, NULL, 1);
 }

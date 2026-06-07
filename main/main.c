@@ -471,21 +471,23 @@ void app_main(void)
     // Motor (TMC6300)
     motor_init();
     motor_set_duty(35);
-    xTaskCreate(motor_control_task, "motor_ctrl", 6144, NULL, 4, NULL);
+    // Core 0: Motor-Regelung zusammen mit motor_task auf gleichem Core
+    xTaskCreatePinnedToCore(motor_control_task, "motor_ctrl", 6144, NULL, 4, NULL, 0);
 
     // Magnetic sensor (MT6701)
     mag_sensor_init();
 
     // Ambient light sensor (VEML7700)
     light_sensor_init();
-    xTaskCreate(lux_task, "lux", 2048, NULL, 3, NULL);
+    // Core 1: UI/Sensor-Core
+    xTaskCreatePinnedToCore(lux_task, "lux", 3072, NULL, 3, NULL, 1);
 
     // Strain sensor (HX711)
     strain_sensor_init();
-    xTaskCreate(strain_task, "strain", 3072, NULL, 3, NULL);
+    xTaskCreatePinnedToCore(strain_task, "strain", 3072, NULL, 3, NULL, 1);
 
 #ifdef LOG_HEAP
-    xTaskCreate(heap_task, "heap", 2048, NULL, 1, NULL);
+    xTaskCreatePinnedToCore(heap_task, "heap", 4096, NULL, 1, NULL, 1);
 #endif
 
     // initial UI
@@ -494,7 +496,7 @@ void app_main(void)
     // LVGL timer: reads sensor and updates UI every 50ms
     lv_timer_create(sensor_update_cb, 100, NULL);
 
-    xTaskCreate(lvgl_task, "lvgl", 6144, NULL, 5, NULL);
+    xTaskCreatePinnedToCore(lvgl_task, "lvgl", 6144, NULL, 5, NULL, 1);
 
     ESP_LOGI(TAG, "Init complete");
 }

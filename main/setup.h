@@ -50,4 +50,4 @@
 // Stack-Watermark-Monitor: minimalen freien Stack aller Tasks alle 5 Sek ausgeben.
 // Erfordert LOG_HEAP. Wert in Words (1 Word = 4 Byte).
 // Faustregel: < 64 Words (~256 B) = kritisch → Stack-Größe erhöhen!
-#define LOG_STACK
+// #define LOG_STACK
