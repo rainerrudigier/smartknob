@@ -61,10 +61,9 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 
-# SPI master ISR in IRAM – nur nötig bei Flash-Writes während SPI läuft
-# oder bei sehr zeitkritischen SPI-Timings. Bei LVGL DMA-Betrieb nicht
-# erforderlich; deaktiviert um IRAM-Headroom freizugeben (war 100% voll).
-CONFIG_SPI_MASTER_ISR_IN_IRAM=n
+# SPI master ISR in IRAM – erforderlich für LVGL DMA-Flush (SPI-Transfer-Completion
+# ISR muss latenzfrei laufen, sonst TG1WDT bei erstem lv_timer_handler() Call).
+CONFIG_SPI_MASTER_ISR_IN_IRAM=y
 
 # I2C master ISR in IRAM – nicht erforderlich, da VEML7700 kein zeitkritisches
 # I2C-Timing benötigt. Deaktiviert um IRAM-Headroom freizugeben.
