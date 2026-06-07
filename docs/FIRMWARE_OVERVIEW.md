@@ -13,7 +13,7 @@
 3. [Sensoren](#sensoren)
    - [MT6701 – Magnetsensor](#mt6701--magnetsensor)
    - [VEML7700 – Umgebungslichtsensor](#veml7700--umgebungslichtsensor)
-   - [HX711 – Kraftsensor](#hx711--kraftsensor)
+   - [HX711 – Kraftsensor (Press Detection)](#hx711--kraftsensor-press-detection)
 4. [Aktoren](#aktoren)
    - [GC9A01 – Runddisplay](#gc9a01--runddisplay)
    - [SK6812 – RGB-LEDs](#sk6812--rgb-leds)
@@ -23,11 +23,13 @@
    - [Sinus-Kommutierung](#2-sinus-kommutierung)
    - [Vergleich beider Varianten](#vergleich-beider-varianten)
 6. [Motorregelung (Normal-Modus)](#motorregelung-normal-modus)
-7. [Betriebs-Modi](#betriebs-modi)
+7. [LVGL-UI](#lvgl-ui)
+8. [Betriebs-Modi](#betriebs-modi)
    - [Normal-Modus](#normal-modus)
    - [Motor-Test-Modus](#motor-test-modus)
-8. [Task-Architektur](#task-architektur)
-9. [Build-Konfiguration](#build-konfiguration)
+9. [Task-Architektur](#task-architektur)
+10. [Debug / Logging](#debug--logging)
+11. [Build-Konfiguration](#build-konfiguration)
 
 ---
 
@@ -125,12 +127,27 @@ Der LVGL-Timer-Callback aktualisiert die Anzeige alle 100 ms.
 
 ---
 
-### HX711 – Kraftsensor (Strain Gauge)
+### HX711 – Kraftsensor (Press Detection)
 
 **Protokoll:** Bit-Bang (2-Draht: SCK IO13, DOUT IO14)
 
 Der HX711 ist ein 24-Bit ADC speziell für Wägezellen und Drucksensoren.
 Er arbeitet im Kanal A mit Gain 128.
+
+**Messbrücken-Anordnung:**
+
+Die Messbrücke ist längs angeordnet. Alle vier Messwiderstände haben einen
+Nennwert von 390 Ω:
+
+```
+Links:  AVDD ──[R]── INA+ ──[R]── GND
+Rechts: AVDD ──[R]── INA- ──[R]── GND
+
+HX711-Ausgabe = V(INA+) − V(INA-)
+```
+
+Die Anordnung erlaubt die Erkennung von **Druckkraft** (Betrag), aber keine
+zuverlässige Richtungserkennung (links/rechts).
 
 **Lese-Protokoll:**
 1. Warten bis DOUT LOW (Messung bereit, typisch 10–100 ms)
@@ -139,10 +156,11 @@ Er arbeitet im Kanal A mit Gain 128.
 4. Vorzeichenkorrektur: XOR mit `0x800000` (Two's-Complement-Offset)
 5. Sign-Extension auf `int32_t`
 
-**Tare-Funktion:** Mittelt 8 Messungen und speichert den Offset.
+**Tare-Funktion:** Mittelt 8 Messungen beim Start und speichert den Offset.
 Alle nachfolgenden Messwerte sind relativ zum Tare-Wert.
 
-**Task:** `strain_task` liest alle 500 ms und schreibt in `s_last_strain`.
+**Task:** `strain_task` liest alle 500 ms, speichert vorzeichenbehafteten
+Wert in `s_last_strain` (Stack: 3072 B wegen `ESP_LOGI`-Overhead).
 
 ---
 
@@ -324,14 +342,14 @@ Im Normal-Modus läuft eine Closed-Loop-Regelung basierend auf dem MT6701:
 
 **Parameter:**
 
-| Konstante     | Wert   | Bedeutung                              |
-|---------------|-------:|----------------------------------------|
-| `TRIGGER_DEG` | 20,0°  | Mindestauslenkung des Knobs            |
-| `TARGET_DEG`  | 180,0° | Motorhub pro Auslösung                 |
-| `REACH_TOL`   |  3,0°  | Toleranz für „Ziel erreicht"           |
-| `SLOW_DEG`    | 40,0°  | Verbleibender Winkel → Langsamfahrt    |
-| `STEP_MS_FAST`|  15 ms | Schrittzeit Normalfahrt                |
-| `STEP_MS_SLOW`|  35 ms | Schrittzeit Langsamfahrt               |
+| Konstante      | Wert   | Bedeutung                              |
+|----------------|-------:|----------------------------------------|
+| `TRIGGER_DEG`  | 20,0°  | Mindestauslenkung des Knobs            |
+| `TARGET_DEG`   | 180,0° | Motorhub pro Auslösung                 |
+| `REACH_TOL`    |  3,0°  | Toleranz für „Ziel erreicht"           |
+| `SLOW_DEG`     | 40,0°  | Verbleibender Winkel → Langsamfahrt    |
+| `STEP_MS_FAST` |  15 ms | Schrittzeit Normalfahrt                |
+| `STEP_MS_SLOW` |  35 ms | Schrittzeit Langsamfahrt               |
 
 **Ablauf:**
 1. Knob dreht ≥ 20° → Trigger
@@ -342,6 +360,58 @@ Im Normal-Modus läuft eine Closed-Loop-Regelung basierend auf dem MT6701:
 
 ---
 
+## LVGL-UI
+
+Das Display zeigt alle Sensorwerte gleichzeitig. Der `sensor_update_cb`
+LVGL-Timer läuft alle **100 ms** und ruft alle `ui_update_*`-Funktionen auf.
+
+```
+        ┌─────────────────────┐
+        │     123.4 lx        │  ← VEML7700 (gelb, oben)
+     ╔══╪═════════════════════╪══╗  ← Press-Ring (orange, ⌀220px)
+     ║  │  ┌───────────────┐  │  ║
+     ║  │  │   178.3°      │  │  ║  ← MT6701 Winkel (weiß)
+     ║  │  │   < LEFT      │  │  ║  ← Motor-Richtung (grün/orange)
+     ║  │  └───────────────┘  │  ║
+     ╚══╪═════════════════════╪══╝
+        │      F: 2341        │  ← HX711 Rohwert (grau, unten)
+        └─────────────────────┘
+```
+
+**UI-Elemente:**
+
+| Element        | Widget           | Größe / Position      | Farbe              |
+|----------------|------------------|-----------------------|--------------------|
+| Winkel-Arc     | `lv_arc`         | ⌀190 px, zentriert    | Cyan               |
+| Winkelwert     | `lv_label`       | Mitte, –10 px         | Weiß               |
+| Richtung       | `lv_label`       | Mitte, +14 px         | Grün (L) / Orange (R) |
+| Lux            | `lv_label`       | Oben, +14 px          | Gelb               |
+| Press-Ring     | `lv_obj` (Kreis) | ⌀220 px, zentriert    | Orange             |
+| Kraft-Rohwert  | `lv_label`       | Unten, –14 px         | Grau               |
+
+**Press-Ring (HX711):**
+
+Der Ring liegt als transparentes Kreis-Objekt hinter dem Winkel-Arc.
+Nur der Border ist sichtbar; dessen Breite skaliert mit der Druckkraft:
+
+| Zustand                        | Ringbreite  | Sichtbarkeit    |
+|--------------------------------|-------------|-----------------|
+| Kein Druck (< STRAIN_THRESHOLD)| –           | Unsichtbar      |
+| Leichter Druck                 | 2 px        | Sichtbar        |
+| Maximaler Druck (≥ STRAIN_MAX) | 18 px       | Sichtbar        |
+
+Konfigurierbare Konstanten in `ui.c`:
+
+```c
+#define STRAIN_THRESHOLD   1500   // Rauschfilter (HX711 Roheinheiten nach Tare)
+#define STRAIN_MAX        80000   // Vollausschlag → maximale Ringbreite
+#define RING_WIDTH_MIN        2   // Mindest-Ringbreite [px]
+#define RING_WIDTH_MAX       18   // Maximale Ringbreite [px]
+#define RING_SIZE           220   // Außendurchmesser [px]
+```
+
+---
+
 ## Betriebs-Modi
 
 ### Normal-Modus
@@ -349,18 +419,15 @@ Im Normal-Modus läuft eine Closed-Loop-Regelung basierend auf dem MT6701:
 Alle Peripheriegeräte aktiv. Aktiviert wenn `#define MOTOR_TEST` **nicht** gesetzt ist.
 
 ```c
-// main.c – Normal-Modus
-motor_init();        // BLDC-Treiber
-mag_sensor_init();   // MT6701
-light_sensor_init(); // VEML7700
-strain_sensor_init();// HX711
-leds_init();         // SK6812
-ui_init(display);    // LVGL-Oberfläche
+// main.c – Normal-Modus Initialisierung
+motor_init();          motor_set_duty(35);  // TMC6300, 35% Duty
+mag_sensor_init();                          // MT6701
+light_sensor_init();                        // VEML7700
+strain_sensor_init();                       // HX711
+leds_init();           leds_start_task();   // SK6812
+ui_init(display);                           // LVGL
+lv_timer_create(sensor_update_cb, 100, NULL);
 ```
-
-**LVGL-UI:**
-- Bogen (Arc) 190 × 190 px, 270° Startwinkel, zeigt Magnetwinkel
-- Label: Winkel in Grad, Richtung, Lux-Wert, Kraft-Wert
 
 ---
 
@@ -371,23 +438,23 @@ Aktiviert mit `#define MOTOR_TEST` in `main.c`.
 Nur Motor + Display aktiv. 15 Szenarien werden automatisch der Reihe nach
 abgefahren, um verschiedene Ansteuerungs-Parameter zu evaluieren:
 
-| # | Richtung | step_ms | Duty | Dauer | Beschreibung         |
-|---|----------|--------:|-----:|------:|----------------------|
-| 1 | Links    |      10 |  50% |  3 s  | Schnell              |
-| 2 | Links    |      20 |  50% |  3 s  | Mittel               |
-| 3 | Links    |      40 |  50% |  3 s  | Langsam              |
-| 4 | Rechts   |      10 |  50% |  3 s  | Schnell              |
-| 5 | Rechts   |      20 |  50% |  3 s  | Mittel               |
-| 6 | Rechts   |      40 |  50% |  3 s  | Langsam              |
-| 7 | Links    |      20 |  25% |  3 s  | Niedriger Duty       |
-| 8 | Links    |      20 |  35% |  3 s  | Standard Duty        |
-| 9 | Links    |      20 |  60% |  3 s  | Hoher Duty           |
-|10 | Links    |      20 |  80% |  3 s  | Sehr hoher Duty      |
-|11 | Links    |      15 |  40% |  2 s  | Richtungswechsel     |
-|12 | Rechts   |      15 |  40% |  2 s  | Richtungswechsel     |
-|13 | Links    |       8 |  40% |  3 s  | Sehr schnell         |
-|14 | Rechts   |       8 |  40% |  3 s  | Sehr schnell         |
-|15 | Links    |      60 |  60% |  3 s  | Sehr langsam         |
+| #  | Richtung | step_ms | Duty | Dauer | Beschreibung         |
+|----|----------|--------:|-----:|------:|----------------------|
+|  1 | Links    |      10 |  50% |  3 s  | Schnell              |
+|  2 | Links    |      20 |  50% |  3 s  | Mittel               |
+|  3 | Links    |      40 |  50% |  3 s  | Langsam              |
+|  4 | Rechts   |      10 |  50% |  3 s  | Schnell              |
+|  5 | Rechts   |      20 |  50% |  3 s  | Mittel               |
+|  6 | Rechts   |      40 |  50% |  3 s  | Langsam              |
+|  7 | Links    |      20 |  25% |  3 s  | Niedriger Duty       |
+|  8 | Links    |      20 |  35% |  3 s  | Standard Duty        |
+|  9 | Links    |      20 |  60% |  3 s  | Hoher Duty           |
+| 10 | Links    |      20 |  80% |  3 s  | Sehr hoher Duty      |
+| 11 | Links    |      15 |  40% |  2 s  | Richtungswechsel     |
+| 12 | Rechts   |      15 |  40% |  2 s  | Richtungswechsel     |
+| 13 | Links    |       8 |  40% |  3 s  | Sehr schnell         |
+| 14 | Rechts   |       8 |  40% |  3 s  | Sehr schnell         |
+| 15 | Links    |      60 |  60% |  3 s  | Sehr langsam         |
 
 Das Display zeigt Szenario-Nummer, -Bezeichnung und Stop-Status.
 Alle LVGL-Aufrufe laufen **im selben Task** (`app_main`) – kein paralleler
@@ -399,21 +466,43 @@ LVGL-Zugriff, kein Watchdog-Risiko.
 
 ### Normal-Modus
 
-| Task              | Stack  | Priorität | Funktion                          |
-|-------------------|-------:|----------:|-----------------------------------|
-| `motor_task`      | 3072 B |         6 | BLDC-Kommutierung (2 ms Periode)  |
-| `lvgl_task`       | 6144 B |         5 | `lv_timer_handler()` + Rendering  |
-| `motor_ctrl`      | 3072 B |         4 | Closed-Loop Winkelregelung        |
-| `lux_task`        | 2048 B |         3 | VEML7700 alle 500 ms              |
-| `strain_task`     | 2048 B |         3 | HX711 alle 500 ms                 |
-| `app_main`        | –      |         1 | Initialisierung, danach idle      |
+| Task           | Stack  | Priorität | Funktion                               |
+|----------------|-------:|----------:|----------------------------------------|
+| `motor_task`   | 3072 B |         6 | BLDC-Kommutierung (2 ms Periode)       |
+| `lvgl_task`    | 6144 B |         5 | `lv_timer_handler()` + Rendering       |
+| `motor_ctrl`   | 3072 B |         4 | Closed-Loop Winkelregelung             |
+| `lux_task`     | 2048 B |         3 | VEML7700 alle 500 ms                   |
+| `strain_task`  | 3072 B |         3 | HX711 alle 500 ms (3072 B wg. LOGI)   |
+| `app_main`     | –      |         1 | Initialisierung, danach idle           |
+
+> **Hinweis Stack-Größe:** `ESP_LOGI` / `printf` mit `vsnprintf` belegt ca.
+> 400–600 B zusätzlichen Stack. Tasks mit Logging brauchen mindestens 3072 B.
 
 ### Motor-Test-Modus
 
-| Task              | Stack  | Priorität | Funktion                          |
-|-------------------|-------:|----------:|-----------------------------------|
-| `motor_task`      | 3072 B |         6 | BLDC-Kommutierung                 |
-| `app_main`        | –      |         1 | Szenarien-Loop + LVGL-Rendering   |
+| Task           | Stack  | Priorität | Funktion                          |
+|----------------|-------:|----------:|-----------------------------------|
+| `motor_task`   | 3072 B |         6 | BLDC-Kommutierung                 |
+| `app_main`     | –      |         1 | Szenarien-Loop + LVGL-Rendering   |
+
+---
+
+## Debug / Logging
+
+Zentrale Logging-Schalter in `main/logging.h`:
+
+```c
+// #define LOG_STRAIN      // HX711 Rohwert alle 500 ms (default: aus)
+// #define LOG_MAG_SENSOR  // MT6701 Winkel alle 100 ms (default: aus)
+// #define LOG_MOTOR_CTRL  // Motor Trigger/Ziel-Meldungen (default: aus)
+// #define LOG_LUX         // VEML7700 Lux alle 500 ms (default: aus)
+```
+
+Raute vor dem gewünschten Define entfernen und neu bauen. Alle Ausgaben
+erfolgen via `ESP_LOGI` auf der seriellen Konsole.
+
+Zusätzlich zeigt das Display immer den aktuellen HX711-Rohwert (`F: <wert>`)
+zur Kalibrierung von `STRAIN_THRESHOLD` und `STRAIN_MAX`.
 
 ---
 
@@ -421,15 +510,15 @@ LVGL-Zugriff, kein Watchdog-Risiko.
 
 Relevante Einstellungen aus `sdkconfig.defaults`:
 
-| Parameter                    | Wert      | Begründung                                    |
-|------------------------------|-----------|-----------------------------------------------|
-| `CONFIG_FREERTOS_HZ`         | 1000      | 1 ms Tick-Auflösung für präzises Motor-Timing |
-| CPU-Frequenz                 | 160 MHz   | –                                             |
-| Flash                        | 2 MB, DIO, 80 MHz | –                                   |
-| XTAL                         | 40 MHz    | ESP32-S3 Standard                             |
-| LVGL Farbe                   | 16-Bit    | RGB565                                        |
-| LVGL Heap                    | 64 KB     | –                                             |
-| LVGL Font                    | Montserrat 14 | –                                         |
+| Parameter            | Wert              | Begründung                                    |
+|----------------------|-------------------|-----------------------------------------------|
+| `CONFIG_FREERTOS_HZ` | 1000              | 1 ms Tick-Auflösung für präzises Motor-Timing |
+| CPU-Frequenz         | 160 MHz           | –                                             |
+| Flash                | 2 MB, DIO, 80 MHz | –                                             |
+| XTAL                 | 40 MHz            | ESP32-S3 Standard                             |
+| LVGL Farbe           | 16-Bit            | RGB565                                        |
+| LVGL Heap            | 64 KB             | –                                             |
+| LVGL Font            | Montserrat 14     | –                                             |
 
 > **Hinweis:** `CONFIG_FREERTOS_HZ=1000` ist kritisch für die Motor-Ansteuerung.
 > Mit dem Default-Wert 100 Hz (10 ms Auflösung) sind `step_ms`-Werte unter 10 ms
