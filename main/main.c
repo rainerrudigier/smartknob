@@ -449,7 +449,7 @@ void app_main(void)
     // Motor (TMC6300)
     motor_init();
     motor_set_duty(35);
-    xTaskCreate(motor_control_task, "motor_ctrl", 3072, NULL, 4, NULL);
+    xTaskCreate(motor_control_task, "motor_ctrl", 4096, NULL, 4, NULL);
 
     // Magnetic sensor (MT6701)
     mag_sensor_init();

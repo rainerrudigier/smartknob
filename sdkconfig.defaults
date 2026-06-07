@@ -43,6 +43,17 @@ CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 
+# Panic / Crash-Diagnose
+# Panic-Handler gibt Backtrace + Register-Dump aus bevor der Reset kommt.
+# Bei sporadischen TG1WDT_SYS_RST Resets (Exception → WDT) ist dies
+# die einzige Möglichkeit die eigentliche Absturzursache zu sehen.
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+
+# Stack-Overflow-Erkennung: schreibt Canary-Werte an Stack-Ende,
+# meldet bei Überschreibung via vApplicationStackOverflowHook.
+CONFIG_FREERTOS_ENABLE_STATIC_TASK_CLEAN_UP=n
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 

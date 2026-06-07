@@ -226,7 +226,7 @@ void motor_init(void)
     ESP_LOGI(TAG, "TMC6300 BLOCK commutation, PWM=%dHz", PWM_FREQ_HZ);
 #endif
 
-    xTaskCreate(motor_task, "motor", 3072, NULL, 6, NULL);
+    xTaskCreate(motor_task, "motor", 4096, NULL, 6, NULL);
 }
 
 void motor_set(motor_dir_t dir, uint32_t step_ms)
