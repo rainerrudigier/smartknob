@@ -391,15 +391,14 @@ static void lux_task(void *arg)
     }
 }
 
-static volatile int32_t s_last_strain = 0;
+static volatile uint32_t s_last_strain = 0;
 
 static void strain_task(void *arg)
 {
-    strain_sensor_tare();
     while (1) {
         s_last_strain = strain_sensor_read();
 #ifdef LOG_STRAIN
-        ESP_LOGI(TAG, "STRAIN raw=%ld", (long)s_last_strain);
+        ESP_LOGI(TAG, "STRAIN delta=%lu", (unsigned long)s_last_strain);
 #endif
         vTaskDelay(pdMS_TO_TICKS(500));
     }

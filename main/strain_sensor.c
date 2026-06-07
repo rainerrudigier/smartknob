@@ -6,11 +6,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static const char *TAG  = "strain";
-static int32_t    s_tare = 0;
+static const char *TAG = "strain";
+
+// Ruhe-Referenzwert: bei init gemessen, danach fest
+static uint32_t s_baseline = 0;
 
 // SCK pulse timings from datasheet: T3 high ≥0.2µs, T4 low ≥0.2µs
 #define SCK_HALF_US  1
+
+// Sentinel: Lesefehler (DOUT timeout)
+#define READ_ERROR   UINT32_MAX
 
 void strain_sensor_init(void)
 {
@@ -33,7 +38,17 @@ void strain_sensor_init(void)
     gpio_config(&do_cfg);
 
     gpio_set_level(STRAIN_SCK, 0);  // SCK low = normal operation
-    ESP_LOGI(TAG, "HX711 ready");
+
+    // Baseline: Mittelwert aus 4 Messungen im Ruhezustand
+    uint32_t sum = 0;
+    int valid = 0;
+    for (int i = 0; i < 4; i++) {
+        uint32_t v = strain_sensor_read_raw();
+        if (v != READ_ERROR) { sum += v; valid++; }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    s_baseline = (valid > 0) ? (sum / valid) : (1u << 23);  // Fallback: Mittelpunkt
+    ESP_LOGI(TAG, "HX711 ready, baseline=%lu", (unsigned long)s_baseline);
 }
 
 bool strain_sensor_ready(void)
@@ -41,20 +56,21 @@ bool strain_sensor_ready(void)
     return gpio_get_level(STRAIN_DO) == 0;
 }
 
-// Read raw 24-bit signed value (blocking wait up to timeout_ms for data ready)
-static int32_t read_raw(uint32_t timeout_ms)
+// Liest rohen 24-Bit Unsigned-Wert (0..16777215).
+// Gibt READ_ERROR (UINT32_MAX) bei Timeout zurück.
+uint32_t strain_sensor_read_raw(void)
 {
-    // wait for DOUT low (data ready)
+    // Warten bis DOUT low (Messung bereit), max. 200 ms
     uint32_t waited = 0;
     while (gpio_get_level(STRAIN_DO)) {
         vTaskDelay(pdMS_TO_TICKS(1));
-        if (++waited > timeout_ms) {
+        if (++waited > 200) {
             ESP_LOGW(TAG, "timeout waiting for data");
-            return INT32_MIN;
+            return READ_ERROR;
         }
     }
 
-    // read 24 bits MSB first (from reference C driver in datasheet)
+    // 24 Bits MSB-first einlesen
     uint32_t raw = 0;
     for (int i = 0; i < 24; i++) {
         gpio_set_level(STRAIN_SCK, 1);
@@ -64,61 +80,25 @@ static int32_t read_raw(uint32_t timeout_ms)
         ets_delay_us(SCK_HALF_US);
     }
 
-    // 25th pulse: sets channel A, gain 128 for next conversion
+    // 25. Puls: wählt nächsten Messkanal (Kanal A, Gain 128)
     gpio_set_level(STRAIN_SCK, 1);
     ets_delay_us(SCK_HALF_US);
     gpio_set_level(STRAIN_SCK, 0);
     ets_delay_us(SCK_HALF_US);
 
-    // HX711 outputs MSB inverted → XOR to correct (per datasheet reference driver)
+    // HX711 gibt MSB invertiert aus → korrigieren (per Datenblatt)
     raw ^= 0x800000;
 
-    // sign-extend 24-bit → 32-bit
-    if (raw & 0x800000) {
-        return (int32_t)(raw | 0xFF000000);
-    }
-    return (int32_t)raw;
+    return raw & 0x00FFFFFF;  // 24-Bit unsigned, kein Sign-Extend
 }
 
-// Plausibilitätsgrenze: HX711 Rohwerte nahe ±2^23 (8388608) deuten auf
-// nicht angeschlossenen Sensor oder flottenden DOUT-Pin hin.
-#define TARE_PLAUSIBLE_LIMIT  7000000
-
-void strain_sensor_tare(void)
+// Gibt absoluten Abstand vom Ruhewert zurück (immer >= 0).
+// Gibt READ_ERROR bei Lesefehler zurück.
+uint32_t strain_sensor_read(void)
 {
-    // Bis zu 3 Versuche falls Sensor noch nicht stabil
-    for (int attempt = 0; attempt < 3; attempt++) {
-        int32_t sum = 0;
-        bool ok = true;
-        for (int i = 0; i < 8; i++) {
-            int32_t v = read_raw(200);
-            if (v == INT32_MIN) {
-                ESP_LOGW(TAG, "tare read failed (attempt %d)", attempt + 1);
-                ok = false;
-                break;
-            }
-            sum += v;
-        }
-        if (!ok) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+    uint32_t raw = strain_sensor_read_raw();
+    if (raw == READ_ERROR) return READ_ERROR;
 
-        int32_t candidate = sum / 8;
-        int32_t abs_c = candidate < 0 ? -candidate : candidate;
-        if (abs_c > TARE_PLAUSIBLE_LIMIT) {
-            ESP_LOGW(TAG, "tare implausible: %ld (attempt %d) – sensor connected?",
-                     (long)candidate, attempt + 1);
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-        s_tare = candidate;
-        ESP_LOGI(TAG, "Tare set: %ld", (long)s_tare);
-        return;
-    }
-    ESP_LOGE(TAG, "Tare failed after 3 attempts – readings implausible");
-}
-
-int32_t strain_sensor_read(void)
-{
-    int32_t raw = read_raw(200);
-    if (raw == INT32_MIN) return INT32_MIN;
-    return raw - s_tare;
+    // Betrag der Abweichung vom Baseline (unsigned-sicher)
+    return (raw >= s_baseline) ? (raw - s_baseline) : (s_baseline - raw);
 }

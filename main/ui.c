@@ -104,38 +104,36 @@ void ui_update_angle(float degrees, motor_dir_t dir)
     }
 }
 
-void ui_update_strain(int32_t value)
+void ui_update_strain(uint32_t value)
 {
-    // Rohwert immer aktualisieren
+    // Rohwert immer anzeigen (UINT32_MAX = Lesefehler)
     if (s_strain_raw != NULL) {
         char rbuf[24];
-        if (value == INT32_MIN) {
+        if (value == UINT32_MAX) {
             lv_label_set_text(s_strain_raw, "F: ERR");
         } else {
-            snprintf(rbuf, sizeof(rbuf), "F: %ld", (long)value);
+            snprintf(rbuf, sizeof(rbuf), "F: %lu", (unsigned long)value);
             lv_label_set_text(s_strain_raw, rbuf);
         }
     }
 
-    if (s_strain_ring == NULL || value == INT32_MIN) {
+    if (s_strain_ring == NULL || value == UINT32_MAX) {
         if (s_strain_ring) {
             lv_obj_set_style_border_opa(s_strain_ring, LV_OPA_TRANSP, LV_PART_MAIN);
         }
         return;
     }
 
-    int32_t abs_val = (value < 0) ? -value : value;
-
-    if (abs_val < STRAIN_THRESHOLD) {
+    if (value < STRAIN_THRESHOLD) {
         // Kein Druck → Ring ausblenden
         lv_obj_set_style_border_opa(s_strain_ring, LV_OPA_TRANSP, LV_PART_MAIN);
         return;
     }
 
     // Ringbreite: linear skaliert zwischen RING_WIDTH_MIN und RING_WIDTH_MAX
-    if (abs_val > STRAIN_MAX) abs_val = STRAIN_MAX;
+    uint32_t clamped = (value > STRAIN_MAX) ? STRAIN_MAX : value;
     int32_t width = RING_WIDTH_MIN +
-                    (int32_t)((abs_val - STRAIN_THRESHOLD) *
+                    (int32_t)((clamped - STRAIN_THRESHOLD) *
                                (RING_WIDTH_MAX - RING_WIDTH_MIN) /
                                (STRAIN_MAX - STRAIN_THRESHOLD));
 
