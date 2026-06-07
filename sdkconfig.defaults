@@ -44,10 +44,13 @@ CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 
 # Panic / Crash-Diagnose
-# Panic-Handler gibt Backtrace + Register-Dump aus bevor der Reset kommt.
-# Bei sporadischen TG1WDT_SYS_RST Resets (Exception → WDT) ist dies
-# die einzige Möglichkeit die eigentliche Absturzursache zu sehen.
+# Panic-Handler gibt Backtrace + Register-Dump auf UART aus, dann Reboot.
+# Bei TG1WDT_SYS_RST (Double Exception) erscheint der Backtrace VOR dem Reset.
 CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+
+# Core-Dump: kein UART-Dump (erzeugt Binärmüll im Monitor).
+# Crash-Info kommt ausschließlich vom Panic-Handler (Backtrace + Register).
+CONFIG_ESP_COREDUMP_ENABLE=n
 
 # Stack-Overflow-Erkennung via Canary-Bytes am Stack-Ende.
 CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
