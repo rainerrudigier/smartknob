@@ -412,6 +412,16 @@ static void heap_task(void *arg)
         ESP_LOGI(TAG, "HEAP free=%lu min=%lu",
                  (unsigned long)esp_get_free_heap_size(),
                  (unsigned long)esp_get_minimum_free_heap_size());
+
+#ifdef LOG_STACK
+        // vTaskList() gibt Tabelle: Name | State | Prio | FreeStack(Words) | TaskNum
+        // FreeStack = minimaler freier Stack seit Task-Start (in 4-Byte-Words).
+        // Faustregel: < 64 Words (~256 B) = kritisch, Stack-Größe erhöhen!
+        char buf[512];
+        vTaskList(buf);
+        ESP_LOGI(TAG, "STACK WATERMARKS (min free words):\n%s", buf);
+#endif
+
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
@@ -461,7 +471,7 @@ void app_main(void)
     // Motor (TMC6300)
     motor_init();
     motor_set_duty(35);
-    xTaskCreate(motor_control_task, "motor_ctrl", 4096, NULL, 4, NULL);
+    xTaskCreate(motor_control_task, "motor_ctrl", 6144, NULL, 4, NULL);
 
     // Magnetic sensor (MT6701)
     mag_sensor_init();
