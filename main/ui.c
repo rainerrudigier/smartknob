@@ -19,6 +19,17 @@ static lv_obj_t *s_strain_dot  = NULL;
 #define DOT_X_RIGHT         198
 #define DOT_Y               120
 
+// Brücken-Physik:
+//   Brücke links:  AVDD──[R]──INA+──[R]──GND
+//   Brücke rechts: AVDD──[R]──INA-──[R]──GND
+//   HX711 = V(INA+) − V(INA-)
+//
+//   Drücken LINKS  → linke DMS verformen → V(INA+) sinkt → HX711-Wert NEGATIV
+//   Drücken RECHTS → rechte DMS verformen → V(INA-) sinkt → HX711-Wert POSITIV
+//
+// Falls links/rechts nach Einbau vertauscht sind, dieses Define setzen:
+// #define STRAIN_INVERT
+
 void ui_init(lv_display_t *disp)
 {
     lv_obj_t *screen = lv_display_get_screen_active(disp);
@@ -114,10 +125,18 @@ void ui_update_strain(int32_t value)
                               (DOT_SIZE_MAX - DOT_SIZE_MIN) /
                               (STRAIN_MAX - STRAIN_THRESHOLD));
 
-    // Richtung: positiv = links gedrückt, negativ = rechts gedrückt
+    // Richtung aus Brücken-Physik:
+    //   HX711 negativ → INA+ sank → linke DMS verformt → LINKS gedrückt
+    //   HX711 positiv → INA- sank → rechte DMS verformt → RECHTS gedrückt
+#ifdef STRAIN_INVERT
+    bool press_left = (value > 0);
+#else
+    bool press_left = (value < 0);
+#endif
+
     int32_t cx;
     lv_color_t color;
-    if (value > 0) {
+    if (press_left) {
         cx    = DOT_X_LEFT;
         color = lv_palette_main(LV_PALETTE_CYAN);
     } else {
