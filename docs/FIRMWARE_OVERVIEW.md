@@ -154,13 +154,22 @@ zuverlässige Richtungserkennung (links/rechts).
 2. 24 SCK-Impulse → 24 Datenbits MSB-first einlesen
 3. 25. SCK-Impuls → wählt nächsten Messkanal (Kanal A, Gain 128)
 4. Vorzeichenkorrektur: XOR mit `0x800000` (Two's-Complement-Offset)
-5. Sign-Extension auf `int32_t`
 
-**Tare-Funktion:** Mittelt 8 Messungen beim Start und speichert den Offset.
-Alle nachfolgenden Messwerte sind relativ zum Tare-Wert.
+**Baseline-Kalibrierung:** Beim Start werden 4 Messungen gemittelt und als
+`s_baseline` gespeichert. Alle nachfolgenden Messwerte sind vorzeichenlos
+(`uint32_t`) und berechnen sich als absoluter Abstand vom Baseline-Wert:
 
-**Task:** `strain_task` liest alle 500 ms, speichert vorzeichenbehafteten
-Wert in `s_last_strain` (Stack: 3072 B wegen `ESP_LOGI`-Overhead).
+```c
+uint32_t strain_sensor_read(void) {
+    uint32_t raw = strain_sensor_read_raw();
+    return (raw >= s_baseline) ? (raw - s_baseline) : (s_baseline - raw);
+}
+```
+
+Sentinel für Lesefehler: `UINT32_MAX`
+
+**Task:** `strain_task` liest alle 500 ms, speichert den Wert in `s_last_strain`
+(Stack: 3072 B wegen `ESP_LOGI`-Overhead).
 
 ---
 
@@ -229,10 +238,11 @@ Der Motor-Task prüft diesen Pin in jeder Iteration.
 
 ## Motor-Ansteuerung
 
-Die Firmware unterstützt zwei Kommutierungsverfahren, umschaltbar per Compile-Flag:
+Die Firmware unterstützt zwei Kommutierungsverfahren, umschaltbar per Compile-Flag
+in `setup.h`:
 
 ```c
-// in motor.h:
+// in setup.h:
 #define MOTOR_SINE_COMM   // auskommentieren für Block-Kommutierung
 ```
 
@@ -375,19 +385,21 @@ LVGL-Timer läuft alle **100 ms** und ruft alle `ui_update_*`-Funktionen auf.
      ║  │  └───────────────┘  │  ║
      ╚══╪═════════════════════╪══╝
         │      F: 2341        │  ← HX711 Rohwert (grau, unten)
+        │              abc123 │  ← Git-Hash (grau, unten rechts)
         └─────────────────────┘
 ```
 
 **UI-Elemente:**
 
-| Element        | Widget           | Größe / Position      | Farbe              |
-|----------------|------------------|-----------------------|--------------------|
-| Winkel-Arc     | `lv_arc`         | ⌀190 px, zentriert    | Cyan               |
-| Winkelwert     | `lv_label`       | Mitte, –10 px         | Weiß               |
+| Element        | Widget           | Größe / Position      | Farbe                 |
+|----------------|------------------|-----------------------|-----------------------|
+| Winkel-Arc     | `lv_arc`         | ⌀190 px, zentriert    | Cyan                  |
+| Winkelwert     | `lv_label`       | Mitte, –10 px         | Weiß                  |
 | Richtung       | `lv_label`       | Mitte, +14 px         | Grün (L) / Orange (R) |
-| Lux            | `lv_label`       | Oben, +14 px          | Gelb               |
-| Press-Ring     | `lv_obj` (Kreis) | ⌀220 px, zentriert    | Orange             |
-| Kraft-Rohwert  | `lv_label`       | Unten, –14 px         | Grau               |
+| Lux            | `lv_label`       | Oben, +14 px          | Gelb                  |
+| Press-Ring     | `lv_obj` (Kreis) | ⌀220 px, zentriert    | Orange                |
+| Kraft-Rohwert  | `lv_label`       | Unten Mitte, –14 px   | Grau                  |
+| Git-Hash       | `lv_label`       | Unten rechts, –6 px   | Dunkelgrau (Font 8)   |
 
 **Press-Ring (HX711):**
 
@@ -403,12 +415,15 @@ Nur der Border ist sichtbar; dessen Breite skaliert mit der Druckkraft:
 Konfigurierbare Konstanten in `ui.c`:
 
 ```c
-#define STRAIN_THRESHOLD   1500   // Rauschfilter (HX711 Roheinheiten nach Tare)
+#define STRAIN_THRESHOLD   1500   // Rauschfilter (HX711 Roheinheiten)
 #define STRAIN_MAX        80000   // Vollausschlag → maximale Ringbreite
 #define RING_WIDTH_MIN        2   // Mindest-Ringbreite [px]
 #define RING_WIDTH_MAX       18   // Maximale Ringbreite [px]
 #define RING_SIZE           220   // Außendurchmesser [px]
 ```
+
+**Git-Hash:** Wird beim Start einmalig via `esp_app_get_description()->version`
+gelesen und unten rechts im Display angezeigt (Font Montserrat 8).
 
 ---
 
@@ -433,7 +448,7 @@ lv_timer_create(sensor_update_cb, 100, NULL);
 
 ### Motor-Test-Modus
 
-Aktiviert mit `#define MOTOR_TEST` in `main.c`.
+Aktiviert mit `#define MOTOR_TEST` in `setup.h`.
 
 Nur Motor + Display aktiv. 15 Szenarien werden automatisch der Reihe nach
 abgefahren, um verschiedene Ansteuerungs-Parameter zu evaluieren:
@@ -464,45 +479,97 @@ LVGL-Zugriff, kein Watchdog-Risiko.
 
 ## Task-Architektur
 
-### Normal-Modus
+### Normal-Modus – Core-Zuordnung
 
-| Task           | Stack  | Priorität | Funktion                               |
-|----------------|-------:|----------:|----------------------------------------|
-| `motor_task`   | 3072 B |         6 | BLDC-Kommutierung (2 ms Periode)       |
-| `lvgl_task`    | 6144 B |         5 | `lv_timer_handler()` + Rendering       |
-| `motor_ctrl`   | 3072 B |         4 | Closed-Loop Winkelregelung             |
-| `lux_task`     | 2048 B |         3 | VEML7700 alle 500 ms                   |
-| `strain_task`  | 3072 B |         3 | HX711 alle 500 ms (3072 B wg. LOGI)   |
-| `app_main`     | –      |         1 | Initialisierung, danach idle           |
+Alle Tasks sind mit `xTaskCreatePinnedToCore` fest einem Core zugewiesen:
 
-> **Hinweis Stack-Größe:** `ESP_LOGI` / `printf` mit `vsnprintf` belegt ca.
-> 400–600 B zusätzlichen Stack. Tasks mit Logging brauchen mindestens 3072 B.
+**Core 0 – Motor (zeitkritisch)**
+
+| Task           | Stack  | Priorität | Funktion                                     |
+|----------------|-------:|----------:|----------------------------------------------|
+| `motor`        | 6144 B |         6 | BLDC-Kommutierung (2 ms Periode, sinf/fabsf) |
+| `motor_ctrl`   | 6144 B |         4 | Closed-Loop Winkelregelung (float, fabsf)    |
+
+**Core 1 – UI / Sensoren**
+
+| Task           | Stack  | Priorität | Funktion                                      |
+|----------------|-------:|----------:|-----------------------------------------------|
+| `lvgl`         | 6144 B |         5 | `lv_timer_handler()` + Display-Rendering      |
+| `leds`         | 2048 B |         4 | SK6812 Lauflicht (150 ms Periode)             |
+| `lux`          | 3072 B |         3 | VEML7700 alle 500 ms                          |
+| `strain`       | 3072 B |         3 | HX711 alle 500 ms                             |
+| `heap`         | 4096 B |         1 | Heap-Monitor alle 5 s (optional, LOG_HEAP)    |
+
+**Begründung der Trennung:**
+- `motor` und `motor_ctrl` laufen auf Core 0 ohne Scheduling-Konkurrenz durch
+  UI- oder Sensor-Tasks → stabiles Timing der Sinus-Kommutierung
+- LVGL, Sensoren und LEDs auf Core 1 → kein Einfluss auf Motor-ISR-Latenz
+
+**Stack-Größen-Regeln:**
+
+| Bedingung                          | Minimum  |
+|------------------------------------|----------|
+| Nur Integer, kein Logging          | 2048 B   |
+| Mit `ESP_LOGI` / `printf`          | 3072 B   |
+| Mit FPU (`sinf`, `fabsf`, `%.1f`)  | 6144 B   |
+| Mit `vTaskList()` + `char buf[512]`| 4096 B   |
+
+> **Hintergrund FPU:** Beim Context-Switch muss FreeRTOS die FPU-Register
+> (`xthal_save_extra_nw`, ~72 B) zusätzlich auf den Stack sichern (Lazy Context Save).
+> Tasks die `sinf`, `fabsf` oder `printf("%.1f")` nutzen müssen mindestens 6144 B
+> Stack haben, sonst kommt es zu einem Stack-Overflow → TG1WDT_SYS_RST
+> (Double Exception).
 
 ### Motor-Test-Modus
 
 | Task           | Stack  | Priorität | Funktion                          |
 |----------------|-------:|----------:|-----------------------------------|
-| `motor_task`   | 3072 B |         6 | BLDC-Kommutierung                 |
+| `motor`        | 6144 B |         6 | BLDC-Kommutierung                 |
 | `app_main`     | –      |         1 | Szenarien-Loop + LVGL-Rendering   |
 
 ---
 
 ## Debug / Logging
 
-Zentrale Logging-Schalter in `main/logging.h`:
+Zentrale Konfigurationsdatei: `main/setup.h`
 
 ```c
-// #define LOG_STRAIN      // HX711 Rohwert alle 500 ms (default: aus)
-// #define LOG_MAG_SENSOR  // MT6701 Winkel alle 100 ms (default: aus)
-// #define LOG_MOTOR_CTRL  // Motor Trigger/Ziel-Meldungen (default: aus)
-// #define LOG_LUX         // VEML7700 Lux alle 500 ms (default: aus)
+// ── Betriebs-Modus ──────────────────────────────────────────────────────────
+// #define MOTOR_TEST         // Nur Motor + Display, automatischer Testzyklus
+
+// ── Motor-Ansteuerung ───────────────────────────────────────────────────────
+#define MOTOR_SINE_COMM       // Sinus-Kommutierung (Standard); auskommentieren
+                              // für Block-Kommutierung
+
+// ── Debug / Logging ─────────────────────────────────────────────────────────
+// #define LOG_STRAIN         // HX711 Rohwert alle 500 ms
+// #define LOG_MAG_SENSOR     // MT6701 Winkel alle 100 ms
+// #define LOG_MOTOR_CTRL     // Motor Trigger/Ziel-Meldungen
+// #define LOG_LUX            // VEML7700 Lux alle 500 ms
+// #define LOG_HEAP           // Heap-Monitor alle 5 s
+// #define LOG_STACK          // Stack-Watermarks aller Tasks alle 5 s
+                              // (erfordert LOG_HEAP; nur zur Diagnose!)
 ```
 
-Raute vor dem gewünschten Define entfernen und neu bauen. Alle Ausgaben
-erfolgen via `ESP_LOGI` auf der seriellen Konsole.
+**LOG_STACK – Stack-Watermark-Monitor:**
 
-Zusätzlich zeigt das Display immer den aktuellen HX711-Rohwert (`F: <wert>`)
-zur Kalibrierung von `STRAIN_THRESHOLD` und `STRAIN_MAX`.
+Gibt via `vTaskList()` den minimalen freien Stack aller Tasks aus.
+Der Wert in der Ausgabe entspricht dem **freien Stack in Bytes** seit Task-Start.
+
+```
+Name          State  Prio  FreeBytes  Num
+motor         B      6     5360       8    ✅ komfortabel
+motor_ctrl    B      4     5320       9    ✅ komfortabel
+lvgl          B      5     1788       13   ✅ ok
+heap          X      1     1556       12   ✅ ok
+strain        B      3     2316       11   ✅ ok
+lux           B      3     1872       10   ✅ ok
+leds          B      4     1056       7    ✅ ok
+```
+
+> **Achtung:** `LOG_STACK` nur zur Diagnose aktivieren. `vTaskList()` ruft intern
+> `vTaskSuspendAll()` auf, das auf SMP (Dual-Core) einen Scheduler-Spinlock hält
+> und in seltenen Fällen den Interrupt-Watchdog (TG1WDT_SYS_RST) auslösen kann.
 
 ---
 
@@ -510,15 +577,28 @@ zur Kalibrierung von `STRAIN_THRESHOLD` und `STRAIN_MAX`.
 
 Relevante Einstellungen aus `sdkconfig.defaults`:
 
-| Parameter            | Wert              | Begründung                                    |
-|----------------------|-------------------|-----------------------------------------------|
-| `CONFIG_FREERTOS_HZ` | 1000              | 1 ms Tick-Auflösung für präzises Motor-Timing |
-| CPU-Frequenz         | 160 MHz           | –                                             |
-| Flash                | 2 MB, DIO, 80 MHz | –                                             |
-| XTAL                 | 40 MHz            | ESP32-S3 Standard                             |
-| LVGL Farbe           | 16-Bit            | RGB565                                        |
-| LVGL Heap            | 64 KB             | –                                             |
-| LVGL Font            | Montserrat 14     | –                                             |
+| Parameter                              | Wert    | Begründung                                          |
+|----------------------------------------|---------|-----------------------------------------------------|
+| `CONFIG_FREERTOS_HZ`                   | 1000    | 1 ms Tick-Auflösung für präzises Motor-Timing       |
+| CPU-Frequenz                           | 160 MHz | –                                                   |
+| Flash                                  | 2 MB, DIO, 80 MHz | –                                       |
+| XTAL                                   | 40 MHz  | ESP32-S3 Standard                                   |
+| `CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY` | y | Stack-Overflow-Erkennung via Canary-Bytes          |
+| `CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT` | y       | Backtrace + Register-Dump auf UART vor Reboot       |
+| `CONFIG_ESP_COREDUMP_ENABLE`           | n       | Kein Binär-Dump auf UART (erzeugt Datenmüll)        |
+| `CONFIG_ESP_INT_WDT_TIMEOUT_MS`        | 300     | Interrupt-Watchdog-Timeout                          |
+| LVGL Farbe                             | 16-Bit  | RGB565                                              |
+| LVGL Heap                              | 64 KB   | –                                                   |
+| LVGL Font                              | Montserrat 8 + 14 | 8px für Git-Hash, 14px Standard           |
+
+**IRAM-Optimierungen** (deaktiviert um IRAM-Headroom freizugeben):
+
+| Config-Key                              | Wert | Begründung                           |
+|-----------------------------------------|------|--------------------------------------|
+| `CONFIG_SPI_MASTER_ISR_IN_IRAM`         | n    | LVGL DMA benötigt kein IRAM-ISR      |
+| `CONFIG_I2C_MASTER_ISR_HANDLER_IN_IRAM` | n    | VEML7700 kein zeitkritisches I2C     |
+| `CONFIG_ESP_WIFI_IRAM_OPT`              | n    | WiFi nicht genutzt                   |
+| `CONFIG_ESP_WIFI_RX_IRAM_OPT`           | n    | WiFi nicht genutzt                   |
 
 > **Hinweis:** `CONFIG_FREERTOS_HZ=1000` ist kritisch für die Motor-Ansteuerung.
 > Mit dem Default-Wert 100 Hz (10 ms Auflösung) sind `step_ms`-Werte unter 10 ms
