@@ -87,6 +87,8 @@ static void motor_task(void *arg)
     }
 }
 
+#else
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  SINE COMMUTATION  (HS sinusoidal MCPWM + LS GPIO binary)
 //
@@ -96,7 +98,7 @@ static void motor_task(void *arg)
 //  HS current is sinusoidal → smooth torque, no rucking.
 //  LS remains binary but switches slowly (once per electrical half-revolution).
 // ═════════════════════════════════════════════════════════════════════════════
-#else
+
 
 #define DEG2RAD(d)      ((d) * (float)M_PI / 180.0f)
 #define SINE_TASK_MS    2
