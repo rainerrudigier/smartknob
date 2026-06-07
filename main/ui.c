@@ -3,11 +3,21 @@
 #include <stdint.h>
 #include <limits.h>
 
-static lv_obj_t *s_arc          = NULL;
-static lv_obj_t *s_deg          = NULL;
-static lv_obj_t *s_dir_label    = NULL;
-static lv_obj_t *s_lux_label    = NULL;
-static lv_obj_t *s_strain_label = NULL;
+static lv_obj_t *s_arc         = NULL;
+static lv_obj_t *s_deg         = NULL;
+static lv_obj_t *s_dir_label   = NULL;
+static lv_obj_t *s_lux_label   = NULL;
+static lv_obj_t *s_strain_dot  = NULL;
+
+// Kraft-Anzeige: Schwellwert und Skalierung (raw HX711 Einheiten)
+#define STRAIN_THRESHOLD   1500    // Mindestkraft für Anzeige (Rauschfilter)
+#define STRAIN_MAX        80000    // Maximale Kraft (= max. Punktgröße)
+#define DOT_SIZE_MIN          8    // kleinster Punktdurchmesser [px]
+#define DOT_SIZE_MAX         50    // größter Punktdurchmesser [px]
+// X-Position der Punkt-Mittelpunkte (Display 240×240)
+#define DOT_X_LEFT           42
+#define DOT_X_RIGHT         198
+#define DOT_Y               120
 
 void ui_init(lv_display_t *disp)
 {
@@ -46,11 +56,14 @@ void ui_init(lv_display_t *disp)
     lv_label_set_text(s_lux_label, "--- lx");
     lv_obj_align(s_lux_label, LV_ALIGN_TOP_MID, 0, 14);
 
-    // strain label at bottom
-    s_strain_label = lv_label_create(screen);
-    lv_obj_set_style_text_color(s_strain_label, lv_palette_main(LV_PALETTE_PURPLE), LV_PART_MAIN);
-    lv_label_set_text(s_strain_label, "F: ---");
-    lv_obj_align(s_strain_label, LV_ALIGN_BOTTOM_MID, 0, -14);
+    // Kraft-Punkt (Kreis): links oder rechts, Größe = Kraft
+    s_strain_dot = lv_obj_create(screen);
+    lv_obj_set_style_bg_color(s_strain_dot, lv_palette_main(LV_PALETTE_CYAN), LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_strain_dot, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_strain_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_size(s_strain_dot, DOT_SIZE_MIN, DOT_SIZE_MIN);
+    lv_obj_set_pos(s_strain_dot, DOT_X_LEFT - DOT_SIZE_MIN/2, DOT_Y - DOT_SIZE_MIN/2);
+    lv_obj_add_flag(s_strain_dot, LV_OBJ_FLAG_HIDDEN);  // anfangs unsichtbar
 }
 
 void ui_update_angle(float degrees, motor_dir_t dir)
@@ -79,14 +92,43 @@ void ui_update_angle(float degrees, motor_dir_t dir)
 
 void ui_update_strain(int32_t value)
 {
-    if (s_strain_label == NULL) return;
-    char buf[20];
+    if (s_strain_dot == NULL) return;
+
     if (value == INT32_MIN) {
-        lv_label_set_text(s_strain_label, "F: ERR");
-    } else {
-        snprintf(buf, sizeof(buf), "F: %ld", (long)value);
-        lv_label_set_text(s_strain_label, buf);
+        lv_obj_add_flag(s_strain_dot, LV_OBJ_FLAG_HIDDEN);
+        return;
     }
+
+    int32_t abs_val = (value < 0) ? -value : value;
+
+    if (abs_val < STRAIN_THRESHOLD) {
+        // Kraft zu gering → Punkt ausblenden
+        lv_obj_add_flag(s_strain_dot, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    // Punktgröße: linear skaliert zwischen DOT_SIZE_MIN und DOT_SIZE_MAX
+    if (abs_val > STRAIN_MAX) abs_val = STRAIN_MAX;
+    int32_t size = DOT_SIZE_MIN +
+                   (int32_t)((abs_val - STRAIN_THRESHOLD) *
+                              (DOT_SIZE_MAX - DOT_SIZE_MIN) /
+                              (STRAIN_MAX - STRAIN_THRESHOLD));
+
+    // Richtung: positiv = links gedrückt, negativ = rechts gedrückt
+    int32_t cx;
+    lv_color_t color;
+    if (value > 0) {
+        cx    = DOT_X_LEFT;
+        color = lv_palette_main(LV_PALETTE_CYAN);
+    } else {
+        cx    = DOT_X_RIGHT;
+        color = lv_palette_main(LV_PALETTE_ORANGE);
+    }
+
+    lv_obj_set_size(s_strain_dot, size, size);
+    lv_obj_set_pos(s_strain_dot, cx - size / 2, DOT_Y - size / 2);
+    lv_obj_set_style_bg_color(s_strain_dot, color, LV_PART_MAIN);
+    lv_obj_remove_flag(s_strain_dot, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_update_lux(float lux)
