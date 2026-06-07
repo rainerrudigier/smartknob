@@ -5,7 +5,7 @@
 #include "esp_log.h"
 #include "motor.h"
 
-#define MOTOR_TEST   // <-- auskommentieren zum aktivieren des Motor-Isolationstests
+//#define MOTOR_TEST   // <-- auskommentieren zum aktivieren des Motor-Isolationstests
 
 // LCD + LVGL werden in beiden Modi benötigt
 #include "esp_timer.h"
