@@ -226,7 +226,9 @@ void motor_init(void)
     ESP_LOGI(TAG, "TMC6300 BLOCK commutation, PWM=%dHz", PWM_FREQ_HZ);
 #endif
 
-    xTaskCreate(motor_task, "motor", 4096, NULL, 6, NULL);
+    // 6144 B: sinf/fabsf benötigen FPU-Registerblock (~72 B) zusätzlich
+    // zum normalen Kontextsave → bei 4096 B kommt es zu Double Exception
+    xTaskCreate(motor_task, "motor", 6144, NULL, 6, NULL);
 }
 
 void motor_set(motor_dir_t dir, uint32_t step_ms)

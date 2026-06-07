@@ -80,17 +80,40 @@ static int32_t read_raw(uint32_t timeout_ms)
     return (int32_t)raw;
 }
 
+// Plausibilitätsgrenze: HX711 Rohwerte nahe ±2^23 (8388608) deuten auf
+// nicht angeschlossenen Sensor oder flottenden DOUT-Pin hin.
+#define TARE_PLAUSIBLE_LIMIT  7000000
+
 void strain_sensor_tare(void)
 {
-    // average 8 readings for stable tare
-    int32_t sum = 0;
-    for (int i = 0; i < 8; i++) {
-        int32_t v = read_raw(200);
-        if (v == INT32_MIN) { ESP_LOGW(TAG, "tare read failed"); return; }
-        sum += v;
+    // Bis zu 3 Versuche falls Sensor noch nicht stabil
+    for (int attempt = 0; attempt < 3; attempt++) {
+        int32_t sum = 0;
+        bool ok = true;
+        for (int i = 0; i < 8; i++) {
+            int32_t v = read_raw(200);
+            if (v == INT32_MIN) {
+                ESP_LOGW(TAG, "tare read failed (attempt %d)", attempt + 1);
+                ok = false;
+                break;
+            }
+            sum += v;
+        }
+        if (!ok) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+
+        int32_t candidate = sum / 8;
+        int32_t abs_c = candidate < 0 ? -candidate : candidate;
+        if (abs_c > TARE_PLAUSIBLE_LIMIT) {
+            ESP_LOGW(TAG, "tare implausible: %ld (attempt %d) – sensor connected?",
+                     (long)candidate, attempt + 1);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        s_tare = candidate;
+        ESP_LOGI(TAG, "Tare set: %ld", (long)s_tare);
+        return;
     }
-    s_tare = sum / 8;
-    ESP_LOGI(TAG, "Tare set: %ld", (long)s_tare);
+    ESP_LOGE(TAG, "Tare failed after 3 attempts – readings implausible");
 }
 
 int32_t strain_sensor_read(void)
