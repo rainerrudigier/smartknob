@@ -58,8 +58,10 @@ CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 
-# SPI master ISR in IRAM (bessere LCD-Performance)
-CONFIG_SPI_MASTER_ISR_IN_IRAM=y
+# SPI master ISR in IRAM – nur nötig bei Flash-Writes während SPI läuft
+# oder bei sehr zeitkritischen SPI-Timings. Bei LVGL DMA-Betrieb nicht
+# erforderlich; deaktiviert um IRAM-Headroom freizugeben (war 100% voll).
+# CONFIG_SPI_MASTER_ISR_IN_IRAM=y
 
 # LVGL
 CONFIG_LV_CONF_SKIP=y
