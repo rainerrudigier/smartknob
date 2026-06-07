@@ -3,10 +3,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "motor.h"
-#include "logging.h"
+#include "motor.h"   // inkludiert setup.h
 
-//#define MOTOR_TEST   // <-- auskommentieren zum aktivieren des Motor-Isolationstests
+// MOTOR_TEST und MOTOR_SINE_COMM werden über setup.h gesteuert
 
 // LCD + LVGL werden in beiden Modi benötigt
 #include "esp_timer.h"

@@ -1,8 +1,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
-
-#define MOTOR_SINE_COMM   // <-- aktivieren für Sinus-Kommutierung (sonst Block-PWM)
+#include "setup.h"
 
 typedef enum {
     MOTOR_DIR_LEFT  = 0,
