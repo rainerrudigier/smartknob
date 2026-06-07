@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "motor.h"   // inkludiert setup.h
 
 // MOTOR_TEST und MOTOR_SINE_COMM werden über setup.h gesteuert
@@ -404,6 +405,18 @@ static void strain_task(void *arg)
     }
 }
 
+#ifdef LOG_HEAP
+static void heap_task(void *arg)
+{
+    while (1) {
+        ESP_LOGI(TAG, "HEAP free=%lu min=%lu",
+                 (unsigned long)esp_get_free_heap_size(),
+                 (unsigned long)esp_get_minimum_free_heap_size());
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+#endif
+
 static void sensor_update_cb(lv_timer_t *t)
 {
     (void)t;
@@ -460,6 +473,10 @@ void app_main(void)
     // Strain sensor (HX711)
     strain_sensor_init();
     xTaskCreate(strain_task, "strain", 3072, NULL, 3, NULL);
+
+#ifdef LOG_HEAP
+    xTaskCreate(heap_task, "heap", 2048, NULL, 1, NULL);
+#endif
 
     // initial UI
     ui_init(s_display);

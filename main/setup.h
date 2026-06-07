@@ -42,3 +42,7 @@
 
 // VEML7700 Lichtsensor: Lux-Messwert alle 500 ms auf der Konsole ausgeben.
 // #define LOG_LUX
+
+// Heap-Monitor: freien Heap-Speicher alle 5 Sekunden ausgeben.
+// Nützlich zur Erkennung von Memory-Leaks oder knappem RAM.
+// #define LOG_HEAP
