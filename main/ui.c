@@ -3,11 +3,12 @@
 #include <stdint.h>
 #include <limits.h>
 
-static lv_obj_t *s_arc         = NULL;
-static lv_obj_t *s_deg         = NULL;
-static lv_obj_t *s_dir_label   = NULL;
-static lv_obj_t *s_lux_label   = NULL;
-static lv_obj_t *s_strain_dot  = NULL;
+static lv_obj_t *s_arc           = NULL;
+static lv_obj_t *s_deg           = NULL;
+static lv_obj_t *s_dir_label     = NULL;
+static lv_obj_t *s_lux_label     = NULL;
+static lv_obj_t *s_strain_dot    = NULL;
+static lv_obj_t *s_strain_raw    = NULL;  // Rohwert-Anzeige zur Kalibrierung
 
 // Kraft-Anzeige: Schwellwert und Skalierung (raw HX711 Einheiten)
 #define STRAIN_THRESHOLD   1500    // Mindestkraft für Anzeige (Rauschfilter)
@@ -67,6 +68,12 @@ void ui_init(lv_display_t *disp)
     lv_label_set_text(s_lux_label, "--- lx");
     lv_obj_align(s_lux_label, LV_ALIGN_TOP_MID, 0, 14);
 
+    // Rohwert-Label unten (Kalibrierung)
+    s_strain_raw = lv_label_create(screen);
+    lv_obj_set_style_text_color(s_strain_raw, lv_palette_main(LV_PALETTE_GREY), LV_PART_MAIN);
+    lv_label_set_text(s_strain_raw, "F: ---");
+    lv_obj_align(s_strain_raw, LV_ALIGN_BOTTOM_MID, 0, -14);
+
     // Kraft-Punkt (Kreis): links oder rechts, Größe = Kraft
     s_strain_dot = lv_obj_create(screen);
     lv_obj_set_style_bg_color(s_strain_dot, lv_palette_main(LV_PALETTE_CYAN), LV_PART_MAIN);
@@ -104,6 +111,17 @@ void ui_update_angle(float degrees, motor_dir_t dir)
 void ui_update_strain(int32_t value)
 {
     if (s_strain_dot == NULL) return;
+
+    // Rohwert immer anzeigen
+    if (s_strain_raw != NULL) {
+        char rbuf[24];
+        if (value == INT32_MIN) {
+            lv_label_set_text(s_strain_raw, "F: ERR");
+        } else {
+            snprintf(rbuf, sizeof(rbuf), "F: %ld", (long)value);
+            lv_label_set_text(s_strain_raw, rbuf);
+        }
+    }
 
     if (value == INT32_MIN) {
         lv_obj_add_flag(s_strain_dot, LV_OBJ_FLAG_HIDDEN);

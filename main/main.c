@@ -398,6 +398,7 @@ static void strain_task(void *arg)
     strain_sensor_tare();
     while (1) {
         s_last_strain = strain_sensor_read();
+        ESP_LOGI(TAG, "STRAIN raw=%ld", (long)s_last_strain);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
