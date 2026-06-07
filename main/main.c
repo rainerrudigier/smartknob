@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "motor.h"
+#include "logging.h"
 
 //#define MOTOR_TEST   // <-- auskommentieren zum aktivieren des Motor-Isolationstests
 
@@ -398,7 +399,9 @@ static void strain_task(void *arg)
     strain_sensor_tare();
     while (1) {
         s_last_strain = strain_sensor_read();
+#ifdef LOG_STRAIN
         ESP_LOGI(TAG, "STRAIN raw=%ld", (long)s_last_strain);
+#endif
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
@@ -458,7 +461,7 @@ void app_main(void)
 
     // Strain sensor (HX711)
     strain_sensor_init();
-    xTaskCreate(strain_task, "strain", 2048, NULL, 3, NULL);
+    xTaskCreate(strain_task, "strain", 3072, NULL, 3, NULL);
 
     // initial UI
     ui_init(s_display);
